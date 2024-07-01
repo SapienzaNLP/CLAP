@@ -1,0 +1,12 @@
+# Required to make the "experiments" dir the default one for the output of the models
+hydra:
+  run:
+    dir: ./experiments/${train.model_name}/logs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+
+defaults:
+  - _self_  
+  - train: default_train
+  - model: default_model
+  - data: default_data
+  - override hydra/hydra_logging: disabled  
+  - override hydra/job_logging: disabled  
