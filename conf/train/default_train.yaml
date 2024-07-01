@@ -1,0 +1,87 @@
+# reproducibility
+seed: 40
+
+# model name
+model_name: 'CLAP' 
+
+dropout: 0.35
+attention_dropout: 0.0
+
+# TODO: check in which conf file these params should be
+train_batch_size: 8
+eval_batch_size: 16
+dataloader_drop_last: False
+dataloader_num_workers: 4
+dataloader_pin_memory: True
+
+resume_from_checkpoint: ''
+
+skip_epochs: 0  # number of epochs to skip before starting to save checkpoints
+
+# generate hyperparameters
+length_penalty: 1.0
+early_stopping: True
+no_repeat_ngram_size: 15
+num_beams: 1
+forced_bos_token_id: "(" # this is the token id of the first token of the AMR graph (ie. <bos>)
+decoder_start_token_id: 0
+temperature: 1.0
+do_sample: False
+do_alignment: True
+
+# optimizer radam
+optimizer: 'radam'
+lr: 0.003
+weight_decay: 0.01
+betas: [0.9, 0.98]
+eps: 1e-9
+max_grad_norm: 1.0
+
+# scheduler
+scheduler: 'linear'
+warmup_steps: 500
+t_total: 10_000_000
+
+do_eval: True
+do_predict: True
+
+# pl_trainer
+pl_trainer:
+  _target_: pytorch_lightning.Trainer
+  accelerator: 'gpu'
+  devices: 1
+  accumulate_grad_batches: 1
+  val_check_interval: 1.0  # you can specify an int "n" here => validation every "n" steps
+  max_steps: 10_000_000
+  precision: 'bf16-mixed'
+
+early_stopping_callback:
+  _target_: pytorch_lightning.callbacks.EarlyStopping
+  monitor: val_smatch
+  mode: max
+  patience: 200
+
+model_checkpoint_callback:
+  _target_: pytorch_lightning.callbacks.ModelCheckpoint
+  monitor: val_smatch
+  mode: max
+  verbose: True
+  save_top_k: 1
+  save_last: True
+  dirpath: experiments/${train.model_name}/${model.model_name_or_path}
+
+model_checkpoint_no_optimizer_callback:
+  _target_: pytorch_lightning.callbacks.ModelCheckpoint
+  monitor: val_smatch
+  mode: max
+  verbose: True
+  save_top_k: 1
+  save_last: False
+  dirpath: ${model.save_model_path}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  save_weights_only: True
+
+report_wandb: False 
+wandb:
+  project: 'CLAP'
+  run: 'T5 small'
+  entity: ''
