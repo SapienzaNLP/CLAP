@@ -1,7 +1,7 @@
 batch_size: 8
 num_workers: 1
 
-dataset_name: './datasets/amr3.py'
+dataset_name: './dataset/amr3.py'
 
 train_file: './data/split/training/*.txt'
 test_file: './data/split/test/*.txt'
