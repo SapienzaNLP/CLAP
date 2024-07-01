@@ -1,0 +1,20 @@
+model_name_or_path: 'google/flan-t5-small'
+teacher_model_name_or_path: 'google/flan-t5-small'
+config_name: 'google/flan-t5-small'
+tokenizer_name: 'google/flan-t5-small'
+
+init_token: "▁" #'Ġ'
+
+
+cache_dir: 
+use_fast_tokenizer: True
+
+resume_from_checkpoint: ''
+checkpoint_path: ''
+save_model_path: './models/${model.model_name_or_path}/'
+
+model_revision: 'main'
+use_auth_token: False
+finetune: False
+
+direction: 'amr'
