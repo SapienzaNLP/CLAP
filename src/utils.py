@@ -215,17 +215,25 @@ def permute_cross_attn(cross_attn):
 def permute_cross_attn_forward(cross_attn, model_name):
     # transform list of tensors (cross_attn) to tensor
     cross_tensor = torch.stack(cross_attn, dim=0)
-    if "mbart" in model_name:
-        return cross_tensor.permute(1, 0, 2, 3, 4)
-    elif "bart-base" in model_name or "bart-large" in model_name:
-        return cross_tensor.permute(1, 0, 2, 3, 4)
-    else:
-        return cross_tensor.permute(1, 0, 2, 3, 4)
+    # if "t5" in model_name.lower():
+    #     # T5 models: cross_tensor shape is (num_layers, batch_size, seq_length, seq_length)
+    #     # Permute to (batch_size, num_layers, seq_length, seq_length)
+    #     # print shape
+# 
+    #     print(cross_tensor.shape)
+    #     exit()
+    #     return cross_tensor.permute(0, 1, 2, 3, 4)
+    # 
+    # elif "bart" in model_name:
+    #     return cross_tensor.permute(1, 0, 2, 3, 4)
+    # else:
+        
+    return cross_tensor.permute(1, 0, 2, 3, 4)
 
 
 
 # build graph maps from tokenized graph
-def build_graph_maps(graph_tokens, init_token, init_pos = 2):
+def build_graph_maps(graph_tokens, init_token, init_pos = 1):
     new_tokens = constants.new_tokens_remove_next_init
     # create a map that aligned tokenized graph to the original graphs
     current_node_pos = 1
@@ -235,7 +243,7 @@ def build_graph_maps(graph_tokens, init_token, init_pos = 2):
     node_pos = str(current_node_pos)
     target_node_map[init_pos] = node_pos
     node_pos_stack.append(current_node_pos)
-    current_node_pos = 1
+
 
     reentrancy_map = {}
     non_reentrancy_map = {'<p>1':"1"}
@@ -264,15 +272,17 @@ def build_graph_maps(graph_tokens, init_token, init_pos = 2):
             if token.startswith(f"{init_token}:"):
                 next_token_idx = token_idx + 1
                 try:
-                    while graph_tokens[next_token_idx-1].lstrip(init_token) in new_tokens or not graph_tokens[next_token_idx].startswith(init_token) or graph_tokens[next_token_idx] == f'{init_token}"':
+                    while graph_tokens[next_token_idx-1].lstrip(init_token) in new_tokens or not graph_tokens[next_token_idx].startswith(init_token) or graph_tokens[next_token_idx] == f'{init_token}"' or graph_tokens[next_token_idx] == f'{init_token}(':
                         next_token_idx += 1
                 
                 except:
                     print(graph_tokens)
                     exit()
 
+
             if token.startswith(f"{init_token}:") and graph_tokens[next_token_idx].startswith(f"{init_token}<p>"):
                 next_next_token_idx = next_token_idx + 2
+
                 while not graph_tokens[next_next_token_idx].startswith(init_token) or graph_tokens[next_next_token_idx] == f'{init_token}"':
                     next_next_token_idx += 1
 
@@ -321,10 +331,10 @@ def build_graph_maps(graph_tokens, init_token, init_pos = 2):
 
         
 
-            elif  token.startswith(f"{init_token})") and node_pos_stack:
+            elif  (token.startswith(f"{init_token})") or token.startswith(")")) and node_pos_stack:
                 node_pos = ".".join(node_pos.split(".")[:-1])
                 current_node_pos = node_pos_stack.pop()
-    
+
     return target_node_map, reentrancy_map, non_reentrancy_map, named_entities_map
 
 
@@ -500,7 +510,6 @@ def build_graph_bmr_maps(graph_tokens, init_token, init_pos = 2):
     return target_node_map, reentrancy_map, non_reentrancy_map, named_entities_map
 
     
-
 def extract_alignment_bart(cross_attn, snt_ids, amr_ids, predictions_status, tokenizer):
     alignment_map = []
     init_token = tokenizer.init_token
@@ -512,171 +521,22 @@ def extract_alignment_bart(cross_attn, snt_ids, amr_ids, predictions_status, tok
 
         shift = 0 if snt_ids[sentence_idx][0] else 1
 
-        alignment_score = np.squeeze(cross_attn[sentence_idx].detach().cpu().numpy())
+        alignment_score = np.squeeze(cross_attn[sentence_idx].detach().cpu().to(torch.float16).numpy())
+        # alignment_score = np.squeeze(cross_attn[sentence_idx].detach().cpu().numpy())
 
         graph_tokens = [token if not token.startswith(" ") else token.replace(" ", init_token) for token in tokenizer.convert_ids_to_tokens(amr_ids[sentence_idx])]
         graph_tokens = graph_tokens[:-2]
-        graph_tokens[1] = init_token + graph_tokens[1]
         sentence_tokenized = tokenizer.convert_ids_to_tokens(snt_ids[sentence_idx])
-        sentence_tokenized[1] = init_token + sentence_tokenized[1]
-        
-        # alignment_score = alignment_score[:4].sum(axis=0).sum(axis=0)
-        # alignment_map.append(graph_tokens, sentence_tokenized, alignment_score)
 
         input_word_pos_map = {}
         pos = 0
         for word_idx, word in enumerate(sentence_tokenized):
-            input_word_pos_map[word_idx] = pos
-
-            if  word == "<s>" or word.startswith(init_token) and not (word == f"{init_token}<" and (word_idx + 1) < len(sentence_tokenized) and sentence_tokenized[word_idx + 1] == "a"):
+            if word.startswith(init_token) and not (word == f"{init_token}<" and (word_idx + 1) < len(sentence_tokenized) and sentence_tokenized[word_idx + 1] == "a"):
                 pos += 1
 
-        try:        
-            target_node_map, _, _, _ = build_graph_maps(graph_tokens, init_token)
-        except:
-            alignment_map.append("")
-            continue
-        
-        # remove score from stop words from graph and wikinodes
-        stop_words_graph =  [f'{init_token})', '<pad>', '<s>', '</s>', f' :wiki', f'{init_token}"', "en_XX", "es_XX", "fr_FR", "it_IT", "de_DE"]   
-        is_lit = False
-        is_wiki = False
-
-        for graph_token_idx, graph_token in enumerate(graph_tokens):
-            if graph_token == f"{init_token}:wiki":
-                is_wiki = True
-            elif graph_token == f'{init_token}"':
-                if is_lit:
-                    is_lit = False
-                    is_wiki = False
-                else:
-                    is_lit = True
-            elif graph_token == f'{init_token}-' and graph_tokens[graph_token_idx - 1] == f"{init_token}:wiki":
-                is_wiki = False
-                alignment_score[:, :, graph_token_idx, :] = 0 
-
-
-            if graph_token in stop_words_graph or (is_wiki and is_lit):
-                alignment_score[:, :, graph_token_idx, :] = 0 
-
-
-        stop_words_input = ["en_XX", "es_XX", "fr_FR", "it_IT", "de_DE", '<s>', '</s>', '<pad>', '<pad>', f'{init_token}-', f'{init_token},', f'{init_token}@', f'{init_token}.', ".", f'{init_token}:']
-        for snt_token_idx, snt_token in enumerate(sentence_tokenized):
-            if snt_token in stop_words_input:
-                alignment_score[:, :, :, snt_token_idx] = 0
-                
-
-        # identify compound tokens in the sentence and sum the values
-        sentence_tokens_filter = [(token_idx, 1) if token_idx > 1 else (token_idx, 0) for token_idx, token in enumerate(sentence_tokenized) if not token.startswith(init_token) and token not in ['<s>', '</s>']]
-        sentence_tokens_map = {}
-        for token_idx, repeated in sentence_tokens_filter:
-            sentence_tokens_map[token_idx] = token_idx - 1 if token_idx - 1 not in sentence_tokens_map \
-                                                            else sentence_tokens_map[token_idx - 1]
-        # ccreate 1 array of lenght of sentence with 1s
-        length_compound_tokens = np.ones(len(alignment_score[0, 0, 0,:]))
-
-
-        for split_token_idx, repeated in sentence_tokens_filter:
-            alignment_score[:, :, :, sentence_tokens_map[split_token_idx]] += alignment_score[:, :, :, split_token_idx]
-            alignment_score[:, :, :, split_token_idx] = 0
-            length_compound_tokens[sentence_tokens_map[split_token_idx]] += 1
-            length_compound_tokens[split_token_idx] = 1
-
-        # extract sentence word related to word position to token in sentence
-        sentence_words_map = {}
-        for encoder_pos, sentence_token_pos in input_word_pos_map.items():
-            sentence_word = sentence_tokenized[encoder_pos].replace(f"{init_token}", "")
-            next_token = 1
-            while (encoder_pos + next_token) < len(sentence_tokenized) and not sentence_tokenized[encoder_pos + next_token].startswith(init_token):
-                sentence_word += sentence_tokenized[encoder_pos + next_token]
-                next_token += 1
-
-            sentence_words_map[sentence_token_pos] = sentence_word
-
-
-        alignment_score = alignment_score[0:4].sum(axis=0).sum(axis=0)
-
-
-        # create map relate node position to graph token
-        graph_id_map = {}
-        graph_nodes_map = {}
-        pos2alignment_map = {}
-        for graph_idx, graph_token in target_node_map.items():
-            next_token = 1 if graph_idx + 1 < len(graph_tokens) and graph_tokens[graph_idx].startswith(f"{init_token}<p>") and not (graph_tokens[graph_idx + 1].startswith(f"{init_token}:") or graph_tokens[graph_idx + 1] == f"{init_token})") else 0
-            if graph_idx + next_token < len(graph_tokens):
-                graph_id = graph_tokens[graph_idx].replace(f"{init_token}", "")
-                graph_node = graph_tokens[graph_idx + next_token].replace(f"{init_token}", "")
-                
-                # copy tensor
-                sum_alignments = alignment_score[graph_idx + next_token, :].copy()
-
-
-                next_token += 1
-                is_prep_edge = graph_tokens[graph_idx + next_token] == f"{init_token}prep"
-
-                while (graph_idx + next_token) < len(graph_tokens) \
-                        and (not graph_tokens[graph_idx + next_token].startswith(init_token) \
-                            or (is_prep_edge and (not graph_tokens[graph_idx + next_token].startswith(init_token) \
-                                or graph_tokens[graph_idx + next_token] == f"{init_token}prep")
-                            or (graph_tokens[graph_idx].startswith(f"{init_token}<p>") and graph_id != graph_node and not (graph_tokens[graph_idx + next_token].startswith(f"{init_token}:") or graph_tokens[graph_idx + next_token] == f"{init_token})")))):
-
-                    graph_node += graph_tokens[graph_idx + next_token].lstrip(f"{init_token}")
-                    if graph_tokens[graph_idx + next_token] != f"{init_token}-":
-                        sum_alignments += alignment_score[graph_idx + next_token, :].copy()
-                    
-                    next_token += 1
-
-
-                graph_id_map[graph_token] = graph_id
-                graph_nodes_map[graph_token] = graph_node
-
-                # if all the element in tensor are 0
-                if np.sum(sum_alignments) != 0:
-                    pos2alignment_map[graph_token] = sum_alignments
-
-
-
-        node_word_pos_map = {}
-        for node, alignment in pos2alignment_map.items():
-            node_word_pos_map[node] = input_word_pos_map[np.argmax(alignment)]
-
-        isi_alignments = []
-        for node_pos,span  in node_word_pos_map.items():
-            isi_alignments.append((int(span), node_pos))
-        
-        # sort alignments by second element
-        isi_alignments = sorted(isi_alignments, key=lambda x: x[0])
-
-        alignment_map.append(" ".join(f"{str(pos-shift)}-{node_pos}" for pos, node_pos in isi_alignments))
-
-    
-    return alignment_map
-
-
-
-def extract_alignment_mbart(cross_attn, snt_ids, amr_ids, predictions_status, tokenizer):
-    alignment_map = []
-    init_token = tokenizer.init_token
-
-    for sentence_idx in range(len(cross_attn)):
-        if not predictions_status[sentence_idx]:
-            alignment_map.append("")
-            continue
-
-        shift = 0 if snt_ids[sentence_idx][0] else 1
-
-        alignment_score = np.squeeze(cross_attn[sentence_idx].detach().cpu().numpy())
-
-        graph_tokens = [token if not token.startswith(" ") else token.replace(" ", init_token) for token in tokenizer.convert_ids_to_tokens(amr_ids[sentence_idx])]
-        graph_tokens = graph_tokens[:-2]
-        sentence_tokenized = tokenizer.convert_ids_to_tokens(snt_ids[sentence_idx])
-
-        input_word_pos_map = {}
-        pos = 0
-        for word_idx, word in enumerate(sentence_tokenized):
             input_word_pos_map[word_idx] = pos
 
-            if  word == "<s>" or word.startswith(init_token) and not (word == f"{init_token}<" and (word_idx + 1) < len(sentence_tokenized) and sentence_tokenized[word_idx + 1] == "a"):
+            if word == "<s>":
                 pos += 1
                     
         target_node_map, _, _, _ = build_graph_maps(graph_tokens, init_token)
@@ -690,11 +550,10 @@ def extract_alignment_mbart(cross_attn, snt_ids, amr_ids, predictions_status, to
             if graph_token == f"{init_token}:wiki":
                 is_wiki = True
             elif graph_token == f'{init_token}"':
-                if is_lit:
-                    is_lit = False
-                    is_wiki = False
-                else:
-                    is_lit = True
+                is_lit = True
+            elif graph_token == '"':
+                is_lit = False
+                is_wiki = False
             elif graph_token == f'{init_token}-' and graph_tokens[graph_token_idx - 1] == f"{init_token}:wiki":
                 is_wiki = False
                 alignment_score[:, :, graph_token_idx, :] = 0 
@@ -708,17 +567,15 @@ def extract_alignment_mbart(cross_attn, snt_ids, amr_ids, predictions_status, to
         for snt_token_idx, snt_token in enumerate(sentence_tokenized):
             if snt_token in stop_words_input:
                 alignment_score[:, :, :, snt_token_idx] = 0
-                
 
         # identify compound tokens in the sentence and sum the values
-        sentence_tokens_filter = [(token_idx, 1) if token_idx > 1 else (token_idx, 0) for token_idx, token in enumerate(sentence_tokenized) if not token.startswith(init_token) and token not in ['<s>', '</s>']]
+        sentence_tokens_filter = [(token_idx, 1) if token_idx > 1 else (token_idx, 0) for token_idx, token in enumerate(sentence_tokenized) if not token.startswith(init_token) and token_idx > 1 and token not in ['<s>', '</s>']]
         sentence_tokens_map = {}
         for token_idx, repeated in sentence_tokens_filter:
             sentence_tokens_map[token_idx] = token_idx - 1 if token_idx - 1 not in sentence_tokens_map \
                                                             else sentence_tokens_map[token_idx - 1]
         # ccreate 1 array of lenght of sentence with 1s
         length_compound_tokens = np.ones(len(alignment_score[0, 0, 0,:]))
-
 
         for split_token_idx, repeated in sentence_tokens_filter:
             alignment_score[:, :, :, sentence_tokens_map[split_token_idx]] += alignment_score[:, :, :, split_token_idx]
@@ -727,15 +584,15 @@ def extract_alignment_mbart(cross_attn, snt_ids, amr_ids, predictions_status, to
             length_compound_tokens[split_token_idx] = 1
 
         # extract sentence word related to word position to token in sentence
-        sentence_words_map = {}
-        for encoder_pos, sentence_token_pos in input_word_pos_map.items():
-            sentence_word = sentence_tokenized[encoder_pos].replace(f"{init_token}", "")
-            next_token = 1
-            while (encoder_pos + next_token) < len(sentence_tokenized) and not sentence_tokenized[encoder_pos + next_token].startswith(init_token):
-                sentence_word += sentence_tokenized[encoder_pos + next_token]
-                next_token += 1
-
-            sentence_words_map[sentence_token_pos] = sentence_word
+        # sentence_words_map = {}
+        # for encoder_pos, sentence_token_pos in input_word_pos_map.items():
+        #     sentence_word = sentence_tokenized[encoder_pos].replace(f"{init_token}", "")
+        #     next_token = 1
+        #     while (encoder_pos + next_token) < len(sentence_tokenized) and not sentence_tokenized[encoder_pos + next_token].startswith(init_token):
+        #         sentence_word += sentence_tokenized[encoder_pos + next_token]
+        #         next_token += 1
+# 
+        #     sentence_words_map[sentence_token_pos] = sentence_word
 
 
         alignment_score = alignment_score[8:].sum(axis=0).sum(axis=0)
@@ -754,8 +611,7 @@ def extract_alignment_mbart(cross_attn, snt_ids, amr_ids, predictions_status, to
                 
                 # copy tensor
                 sum_alignments = alignment_score[graph_idx + next_token, :].copy()
-
-
+                
                 next_token += 1
                 is_prep_edge = (graph_idx + next_token) < len(graph_tokens) and graph_tokens[graph_idx + next_token] == f"{init_token}prep"
 
@@ -772,13 +628,13 @@ def extract_alignment_mbart(cross_attn, snt_ids, amr_ids, predictions_status, to
                     next_token += 1
 
 
+                
                 graph_id_map[graph_token] = graph_id
                 graph_nodes_map[graph_token] = graph_node
 
                 # if all the element in tensor are 0
                 if np.sum(sum_alignments) != 0:
                     pos2alignment_map[graph_token] = sum_alignments
-
 
 
         node_word_pos_map = {}

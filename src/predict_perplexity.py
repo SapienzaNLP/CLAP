@@ -33,7 +33,7 @@ def predict(conf: omegaconf.DictConfig) -> None:
     # Create the trainer from configuration using Hydra
     trainer: Trainer = hydra.utils.instantiate(conf.train.pl_trainer)
 
-    # Prepare the dataset for testing
+    # Prepare the dataset 
     pl_data_module.prepare_test_data()
 
     # Run the testing phase using the loaded model and prepared data

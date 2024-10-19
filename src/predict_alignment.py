@@ -26,7 +26,7 @@ def predict(conf: omegaconf.DictConfig) -> None:
     # Initialize the data module with configurations
     pl_data_module = BasePLDataModule(conf, pl_module)
 
-    # Instantiate the PyTorch Lightning Trainer with the configurations from Hydra
+    # Instantiate the PyTorch Lightning Trainer with the configurations
     trainer: Trainer = hydra.utils.instantiate(conf.train.pl_trainer)
 
     # Prepare test data and execute the test phase

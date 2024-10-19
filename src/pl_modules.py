@@ -529,14 +529,12 @@ class AlignerPLModule(BasePLModule):
         cross_tensor = utils.permute_cross_attn_forward(cross_attn, self.hparams.model.model_name_or_path)
 
         # compute the alignment
-        # outputs['alignments'] = utils.extract_alignment_mbart(cross_tensor, input_ids, labels, outputs['status'], self.tokenizer) 
         if "extreme" in self.hparams.data.dataset_name:
             outputs['alignments'] = utils.extract_alignment_extrem_text(cross_tensor, input_ids, labels, outputs['status'], outputs['ids'], self.tokenizer) 
-        elif "mbart" in self.hparams.model.model_name_or_path:
-            outputs['alignments'] = utils.extract_alignment_mbart(cross_tensor, input_ids, labels, outputs['status'], self.tokenizer)
+        elif "bart" in self.hparams.model.model_name_or_path:
+            outputs['alignments'] = utils.extract_alignment_bart(cross_tensor, input_ids, labels, outputs['status'], self.tokenizer)
         else:
-            outputs['alignments'] = utils.extract_alignment_bart(cross_tensor, input_ids, labels, outputs['status'], self.tokenizer) 
-
+            raise ValueError("Model not supported for alignment")
 
         self.step_outputs.append(outputs)
 
