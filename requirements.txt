@@ -7,7 +7,3 @@ smatch==1.0.4
 sacrebleu==2.2.0
 wandb==0.13.2
 hydra-core==1.2.0
-nltk
-evaluate
-absl-py
-rouge_score
